@@ -1,0 +1,206 @@
+{
+  "Version": 1,
+  "WorkspaceRootPath": "D:\\projekt\\SzKompresor\\src\\",
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|D:\\projekt\\SzKompresor\\szytool.dll||{177559E0-D141-11D0-92DF-00A0C9138C45}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|D:\\projekt\\SzKompresor\\main.obj||{25834150-CD7E-11D0-92DF-00A0C9138C45}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|D:\\projekt\\SzKompresor\\main.c||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|D:\\projekt\\SzKompresor\\kopiouj.py||{8B382828-6202-11D1-8870-0000F87579D2}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|D:\\projekt\\SzKompresor\\instrukcja.py||{8B382828-6202-11D1-8870-0000F87579D2}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|D:\\projekt\\SzKompresor\\help.txt||{8B382828-6202-11D1-8870-0000F87579D2}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|D:\\projekt\\SzKompresor\\eo_szyryngo_img_v8.py||{8B382828-6202-11D1-8870-0000F87579D2}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|D:\\projekt\\SzKompresor\\dll_exports.obj||{25834150-CD7E-11D0-92DF-00A0C9138C45}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|D:\\projekt\\SzKompresor\\dll_exports.c||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|D:\\projekt\\SzKompresor\\compare_all_szy_sz3_zfp_lossless_ONEFILE.py||{8B382828-6202-11D1-8870-0000F87579D2}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|D:\\projekt\\SzKompresor\\compare_all.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|D:\\projekt\\SzKompresor\\compare_all.csv||{8B382828-6202-11D1-8870-0000F87579D2}"
+    }
+  ],
+  "DocumentGroupContainers": [
+    {
+      "Orientation": 0,
+      "VerticalTabListWidth": 256,
+      "DocumentGroups": [
+        {
+          "DockedWidth": 200,
+          "SelectedChildIndex": 0,
+          "Children": [
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "szytool.dll",
+              "DocumentMoniker": "D:\\projekt\\SzKompresor\\szytool.dll",
+              "RelativeDocumentMoniker": "..\\szytool.dll",
+              "ToolTip": "D:\\projekt\\SzKompresor\\szytool.dll",
+              "RelativeToolTip": "..\\szytool.dll",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001697|",
+              "WhenOpened": "2026-04-29T17:52:20.484Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
+              "Title": "main.obj",
+              "DocumentMoniker": "D:\\projekt\\SzKompresor\\main.obj",
+              "RelativeDocumentMoniker": "..\\main.obj",
+              "ToolTip": "D:\\projekt\\SzKompresor\\main.obj",
+              "RelativeToolTip": "..\\main.obj",
+              "Icon": "00000000-0000-0000-0000-000000000000.000000|iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAENSURBVDhPjZPNDYMwDIVDxAlxYJR2hCKOSKzQEZiCaxmGIxIjtJu0B35upH4mrgCRlE8ydtLk2XFStafv\u002B8s4jm8YYjt9jDHGRguyuaoqAzslIqw3p2nKdkYkwAcLtNZdXddJ27b8g5BlmSrL8jPP8y2O45eIIYbXvs17ZC1MhAKU6Npss9vRAq1lL1WFPHIAUU9VCYl0GipQQzYBcdM0bAC\u002BKAqO94S2MRDpaJxgUsqjsz4xBsMw2GjbWDt1/IAo5uuEh63eh5mm6Y41Gh\u002BASqAIkyvaQ1nZo5H0CB9IxO/ABTLleW5HW\u002BQYvwpcSDNdTfQKRFEU0JGuFH7\u002BNtGHNHjVxPN/MuHolpRS6gsdswxexzQFmAAAAABJRU5ErkJggg==",
+              "WhenOpened": "2026-04-29T17:52:20.401Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 2,
+              "Title": "main.c",
+              "DocumentMoniker": "D:\\projekt\\SzKompresor\\main.c",
+              "RelativeDocumentMoniker": "..\\main.c",
+              "ToolTip": "D:\\projekt\\SzKompresor\\main.c",
+              "RelativeToolTip": "..\\main.c",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000423|",
+              "WhenOpened": "2026-04-29T17:52:19.393Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 3,
+              "Title": "kopiouj.py",
+              "DocumentMoniker": "D:\\projekt\\SzKompresor\\kopiouj.py",
+              "RelativeDocumentMoniker": "..\\kopiouj.py",
+              "ToolTip": "D:\\projekt\\SzKompresor\\kopiouj.py",
+              "RelativeToolTip": "..\\kopiouj.py",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.002457|",
+              "WhenOpened": "2026-04-29T17:52:19.258Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 4,
+              "Title": "instrukcja.py",
+              "DocumentMoniker": "D:\\projekt\\SzKompresor\\instrukcja.py",
+              "RelativeDocumentMoniker": "..\\instrukcja.py",
+              "ToolTip": "D:\\projekt\\SzKompresor\\instrukcja.py",
+              "RelativeToolTip": "..\\instrukcja.py",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.002457|",
+              "WhenOpened": "2026-04-29T17:52:18.954Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 5,
+              "Title": "help.txt",
+              "DocumentMoniker": "D:\\projekt\\SzKompresor\\help.txt",
+              "RelativeDocumentMoniker": "..\\help.txt",
+              "ToolTip": "D:\\projekt\\SzKompresor\\help.txt",
+              "RelativeToolTip": "..\\help.txt",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003109|",
+              "WhenOpened": "2026-04-29T17:52:18.718Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 6,
+              "Title": "eo_szyryngo_img_v8.py",
+              "DocumentMoniker": "D:\\projekt\\SzKompresor\\eo_szyryngo_img_v8.py",
+              "RelativeDocumentMoniker": "..\\eo_szyryngo_img_v8.py",
+              "ToolTip": "D:\\projekt\\SzKompresor\\eo_szyryngo_img_v8.py",
+              "RelativeToolTip": "..\\eo_szyryngo_img_v8.py",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.002457|",
+              "WhenOpened": "2026-04-29T17:52:18.57Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 7,
+              "Title": "dll_exports.obj",
+              "DocumentMoniker": "D:\\projekt\\SzKompresor\\dll_exports.obj",
+              "RelativeDocumentMoniker": "..\\dll_exports.obj",
+              "ToolTip": "D:\\projekt\\SzKompresor\\dll_exports.obj",
+              "RelativeToolTip": "..\\dll_exports.obj",
+              "Icon": "00000000-0000-0000-0000-000000000000.000000|iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAENSURBVDhPjZPNDYMwDIVDxAlxYJR2hCKOSKzQEZiCaxmGIxIjtJu0B35upH4mrgCRlE8ydtLk2XFStafv\u002B8s4jm8YYjt9jDHGRguyuaoqAzslIqw3p2nKdkYkwAcLtNZdXddJ27b8g5BlmSrL8jPP8y2O45eIIYbXvs17ZC1MhAKU6Npss9vRAq1lL1WFPHIAUU9VCYl0GipQQzYBcdM0bAC\u002BKAqO94S2MRDpaJxgUsqjsz4xBsMw2GjbWDt1/IAo5uuEh63eh5mm6Y41Gh\u002BASqAIkyvaQ1nZo5H0CB9IxO/ABTLleW5HW\u002BQYvwpcSDNdTfQKRFEU0JGuFH7\u002BNtGHNHjVxPN/MuHolpRS6gsdswxexzQFmAAAAABJRU5ErkJggg==",
+              "WhenOpened": "2026-04-29T17:52:18.169Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 8,
+              "Title": "dll_exports.c",
+              "DocumentMoniker": "D:\\projekt\\SzKompresor\\dll_exports.c",
+              "RelativeDocumentMoniker": "..\\dll_exports.c",
+              "ToolTip": "D:\\projekt\\SzKompresor\\dll_exports.c",
+              "RelativeToolTip": "..\\dll_exports.c",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000423|",
+              "WhenOpened": "2026-04-29T17:52:12.485Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 9,
+              "Title": "compare_all_szy_sz3_zfp_lossless_ONEFILE.py",
+              "DocumentMoniker": "D:\\projekt\\SzKompresor\\compare_all_szy_sz3_zfp_lossless_ONEFILE.py",
+              "RelativeDocumentMoniker": "..\\compare_all_szy_sz3_zfp_lossless_ONEFILE.py",
+              "ToolTip": "D:\\projekt\\SzKompresor\\compare_all_szy_sz3_zfp_lossless_ONEFILE.py",
+              "RelativeToolTip": "..\\compare_all_szy_sz3_zfp_lossless_ONEFILE.py",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.002457|",
+              "WhenOpened": "2026-04-29T17:52:06.982Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 10,
+              "Title": "compare_all.json",
+              "DocumentMoniker": "D:\\projekt\\SzKompresor\\compare_all.json",
+              "RelativeDocumentMoniker": "..\\compare_all.json",
+              "ToolTip": "D:\\projekt\\SzKompresor\\compare_all.json",
+              "RelativeToolTip": "..\\compare_all.json",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001642|",
+              "WhenOpened": "2026-04-29T17:52:06.33Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 11,
+              "Title": "compare_all.csv",
+              "DocumentMoniker": "D:\\projekt\\SzKompresor\\compare_all.csv",
+              "RelativeDocumentMoniker": "..\\compare_all.csv",
+              "ToolTip": "D:\\projekt\\SzKompresor\\compare_all.csv",
+              "RelativeToolTip": "..\\compare_all.csv",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.002120|",
+              "WhenOpened": "2026-04-29T17:52:04.858Z",
+              "EditorCaption": ""
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

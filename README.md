@@ -3,6 +3,12 @@
 **EN:** SZY is a scientific bounded‑error compression engine for 2D data.  
 **PL:** SZY to naukowy silnik stratnej kompresji danych 2D z gwarancją błędu.
 
+
+
+<a href="https://doi.org/10.5281/zenodo.19945861"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.19945861.svg" alt="DOI"></a>
+
+
+
 ---
 
 ## EN: Overview

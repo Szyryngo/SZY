@@ -378,8 +378,8 @@ print("Decoded shape:", H2, W2)
 ```text
 src/        - C sources (engine, container, tile, parallel, exports)
 include/    - public C headers (szy_api.h, szy_dll.h, szy_rc.h, ...)
-python/     - benchmark scripts (bench_common.py, bench_public.py)
-doc/        - LaTeX and PDF documentation (whitepaper)
+tests/      - benchmark scripts (bench_common.py, bench_public.py)
+            - LaTeX and PDF documentation (whitepaper)
 LICENSE     - AGPLv3
 README.md   - this file
 .gitignore  - ignores build artifacts and benchmark outputs

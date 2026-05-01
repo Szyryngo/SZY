@@ -1,0 +1,1297 @@
+% !TeX program = pdflatex
+\documentclass[11pt,a4paper]{article}
+
+% =======================
+% Encoding / language
+% =======================
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[polish]{babel}
+
+% =======================
+% Page layout
+% =======================
+\usepackage{geometry}
+\geometry{margin=2.2cm}
+
+% =======================
+% Links
+% =======================
+\usepackage{hyperref}
+\hypersetup{breaklinks=true}
+\usepackage{url}
+\usepackage{xurl}
+
+% =======================
+% Tables / listings / math
+% =======================
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{caption}
+\usepackage{capt-of}
+\usepackage{amsmath}
+\usepackage{siunitx}
+\sisetup{detect-all=true}
+
+\usepackage{listings}
+\usepackage{xcolor}
+
+% =======================
+% Typesetting robustness
+% =======================
+\usepackage{microtype}
+\setlength{\emergencystretch}{2em}
+
+% =======================
+% Float control
+% =======================
+\usepackage{placeins}
+\usepackage{float}
+
+% =======================
+% Wide tables/figures
+% =======================
+\usepackage{adjustbox}
+
+% =======================
+% Plots (optional)
+% =======================
+\usepackage{pgfplots}
+\usepackage{pgfplotstable}
+\usepgfplotslibrary{groupplots}
+\pgfplotsset{compat=1.18}
+
+\newif\ifincludeplots
+\includeplotsfalse % set to \includeplotstrue to enable plots
+
+% Slightly tighter tables
+\setlength{\tabcolsep}{5pt}
+
+% =======================
+% Listings styles
+% =======================
+\lstdefinestyle{cstyle}{
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{blue!70!black},
+  commentstyle=\color{green!45!black},
+  stringstyle=\color{red!60!black},
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  stepnumber=1,
+  numbersep=8pt,
+  tabsize=2,
+  breaklines=true,
+  breakatwhitespace=false,
+  columns=fullflexible,
+  keepspaces=true,
+  frame=single,
+  showstringspaces=false
+}
+
+\lstdefinestyle{txtstyle}{
+  basicstyle=\ttfamily\small,
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  stepnumber=1,
+  numbersep=8pt,
+  tabsize=2,
+  breaklines=true,
+  breakatwhitespace=false,
+  columns=fullflexible,
+  keepspaces=true,
+  frame=single,
+  showstringspaces=false
+}
+
+% =======================
+% Title
+% =======================
+\title{SZY v8 --- dokumentacja inżynieryjna silnika, formatu i testów\\
+Stratna kompresja danych naukowych 2D: transmisja, archiwizacja, szybki decode}
+\author{Projekt: SzKompresor / SZY v8}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\tableofcontents
+\newpage
+
+% =========================================================
+\section{Wstęp: kompresja stratna w nauce i integralność danych}
+
+\subsection{Kodek stratny vs bezstratny}
+Kodek stratny (lossy) dopuszcza kontrolowane odchylenie danych wyjściowych od wejściowych w zamian za mniejszy rozmiar. W kontekście naukowym kluczowy jest \textbf{jawnie zdefiniowany model błędu}, a nie subiektywna jakość.
+
+Typowe modele:
+\begin{itemize}
+  \item \textbf{Bound L$\infty$ (absolute error bound)}:
+        $\max_i |x_i - \hat{x}_i| \le \varepsilon$.
+  \item \textbf{Bound względny}:
+        $\max_i \frac{|x_i - \hat{x}_i|}{|x_i|+\delta} \le \varepsilon_{rel}$.
+  \item \textbf{Miary energetyczne}: RMSE, L2, PSNR jako dodatkowa charakterystyka.
+\end{itemize}
+
+\paragraph{Uwaga o ``zaokrągleniu po 12. miejscu po przecinku''.}
+W wielu zastosowaniach naukowych błąd rzędu $10^{-12}$ (w skali danych $\approx 1$) jest akceptowalny. Należy jednak pamiętać, że sensowność takiej tolerancji zależy od \emph{skali} i jednostek danych: dla wartości rzędu $10^6$ lub $10^7$ precyzja reprezentacji \texttt{float64} (ULP) może być większa niż $10^{-12}$.
+
+\subsection{Silnik vs aplikacja (rola klienta)}
+SZY v8 jest \textbf{silnikiem (engine)}. Oznacza to, że:
+\begin{itemize}
+  \item \textbf{silnik dostarcza mechanikę} (format, pipeline, integralność, wątki, decode-into),
+  \item \textbf{klient dobiera parametry} (np. \texttt{eps}, blok \texttt{B}, liczba workerów, tryb kwantyzacji, politykę eventów),
+  \item poprawność ``naukowa'' jest oceniana w kontekście \emph{realnych danych} i wymagań klienta,
+  \item dla klas danych \emph{niedopasowanych do modelu} silnik może jawnie odmówić spełnienia zadanego bounded-error zamiast generować wynik łamiący gwarancję.
+\end{itemize}
+Testy w niniejszym dokumencie pokazują, że przy sensownie dobranych parametrach dla klas danych obrazopodobnych i szumowych, SZY spełnia oczekiwania jakościowe (kontrolowany błąd) oraz zapewnia korzystne trade-offy względem referencyjnych kodeków. Jednocześnie benchmark zawiera również przypadki \emph{stress-test / out-of-domain}, których celem nie jest dowodzenie przewagi modelu, lecz wyznaczenie granic jego stosowalności.
+
+\subsection{Dlaczego integralność jest częścią formatu}
+W praktyce występuje ryzyko \textbf{silent data corruption}. W silniku SZY v8 integralność jest częścią kontenera:
+\begin{itemize}
+  \item \texttt{data\_sha}: SHA-256 sekcji danych (indeks + tile records),
+  \item \texttt{container\_sha}: SHA-256 całego kontenera.
+\end{itemize}
+Pozwala to wykrywać uszkodzenia i jednoznacznie zwrócić błędy:
+\texttt{SZY\_E\_SHA\_DATA} i \texttt{SZY\_E\_SHA\_CONT}.
+
+% =========================================================
+\section{Cel i zakres dokumentu (co jest ``kompletne'')}
+Dokument obejmuje:
+\begin{enumerate}
+  \item \textbf{Specyfikację binarną} formatu kontenera SZ2D v8 oraz tile record v8 (layout, typy, varuint, endianness, SHA).
+  \item \textbf{Opis algorytmu} encode/decode (pipeline transformacji i ich kolejność).
+  \item \textbf{Opis silnika (engine)}: API DLL/ABI, kontrola wątków, decode-into, indeks, integralność.
+  \item \textbf{Kompilację} (MSVC) i zależności (zstd/zlib).
+  \item \textbf{Testy inżynieryjne} (manual, public benchmark): metodologia, dataset-y, wyniki, obserwacje.
+  \item \textbf{Pozycjonowanie względem liderów} (SZ3 i ZFP): różnice filozofii, sens porównań, wnioski.
+\end{enumerate}
+
+\paragraph{Uwaga: \texttt{eps=0} nie oznacza lossless.}
+W wersji v8 \texttt{eps=0} wyłącza model bounded-error, ale \textbf{nie} wyłącza kwantyzacji (wciąż jest to kompresja stratna). Tryb lossless nie jest celem v8.
+
+% =========================================================
+\section{SZY v8 jako silnik i format: zastosowania oraz nisze}
+
+\subsection{Czym jest SZY v8 (definicja inżynieryjna)}
+SZY v8 jest \textbf{tile-based bounded-error codec} dla danych 2D oraz \textbf{kontenerem} z integralnością i indeksem, udostępnionym jako \textbf{biblioteka C / DLL}.
+
+Najważniejsze cechy silnika:
+\begin{itemize}
+  \item \textbf{Tile independence}: obraz dzielony na kafelki $B\times B$, każdy tile record jest niezależny. To pozwala na:
+        \begin{itemize}
+          \item lokalną kompresję/dekompresję (region-of-interest),
+          \item łatwą równoległość po tile,
+          \item odporność na lokalne uszkodzenia (uszkodzenie jednego tile nie unieważnia całości).
+        \end{itemize}
+  \item \textbf{Index blob}: lista długości tile (varuint), umożliwia szybkie wyznaczenie offsetów tile i równomierny podział pracy między wątkami.
+  \item \textbf{Równoległy decode}: dekodowanie tile równolegle na podstawie indeksu, z kontrolą liczby workerów i progu \texttt{parallel\_min\_tiles}.
+  \item \textbf{Decode-into}: dekompresja bezpośrednio do bufora użytkownika (bez dodatkowej alokacji obrazu) --- istotne dla kodów HPC/FORTRAN, które same zarządzają pamięcią.
+  \item \textbf{Integralność}: SHA-256 danych i kontenera jako część formatu; użytkownik nie musi implementować własnych sum kontrolnych.
+  \item \textbf{Obsługa typów}: float64, float32, uint16 --- pokrywa typowe dane naukowe (pola klimatyczne, sensory, intensywności obrazów).
+  \item \textbf{Wieloplatformowość}: little-endian format, implementacja w C, możliwość uruchomienia na x86-64 i ARM (w tym edge/embedded).
+\end{itemize}
+
+\subsection{Gdzie SZY v8 ma sens naukowo-techniczny}
+Silnik jest szczególnie przydatny w następujących scenariuszach:
+
+\paragraph{Klimat i oceanografia (NetCDF, siatki geofizyczne).}
+\begin{itemize}
+  \item Pola 2D (SST, temperatura przy powierzchni, ciśnienie) z modeli klimatycznych lub reanaliz,
+  \item Horyzontalne przekroje z symulacji 3D (ROMS, NEMO, ICON),
+  \item Strumienie danych z serwisów katalogowych (THREDDS, pyDAP) po konwersji do SUROWYCH bloków C-ordered.
+\end{itemize}
+Dla takich danych kluczowe są:
+\begin{itemize}
+  \item zachowanie kształtu pola (gradienty, struktury mezoskalowe),
+  \item kontrola błędu (aby nie zepsuć asymilacji i diagnostyk wrażliwych),
+  \item przepustowość (HBM/SSD/ethernet).
+\end{itemize}
+Benchmark pokazuje, że na syntetycznym polu klimatycznym (f32) SZY osiąga ratio $10^3$ przy eps=10--20 i spełnia bound.
+
+\paragraph{Obrazy satelitarne i sensory optyczne.}
+\begin{itemize}
+  \item GeoTIFF/CCSDS wyciągnięte jako uint16,
+  \item czujniki optyczne (Landsat, Sentinel) po redukcji do pojedynczej bandy,
+  \item downlink i archiwizacja w stacjach naziemnych.
+\end{itemize}
+Dla takiej klasy danych, SZY v8:
+\begin{itemize}
+  \item daje ratio $\sim$8--16x przy eps=5--20, podczas gdy Zstd/Blosc2 $\sim$4.4x,
+  \item zapewnia twardy bound na błędzie (istotne dla dalszego przetwarzania, np. indeksy wegetacji),
+  \item pozwala na decode fragmentów obrazu (tile).
+\end{itemize}
+
+\paragraph{Dane medyczne (CT) i astronomiczne (CCD).}
+\begin{itemize}
+  \item Przykładowe syntetyczne CT/CCD w formacie uint16 (symulujące HU lub ADU),
+  \item Zstd/Blosc2 oferują $\sim$1.7--1.8x, SZY przy eps=20 osiąga 5--6x (z kontrolą błędu).
+\end{itemize}
+SZY jest naturalnym kandydatem dla archiwizacji długoterminowej: można dobrać eps tak, aby błąd był istotnie mniejszy od wariancji szumu/aparatury.
+
+\paragraph{Strumienie sensoryczne (UCI: AirQuality, Energy) i szeregi czasowe.}
+\begin{itemize}
+  \item Dla \texttt{sensor\_energy\_uci} przy eps=20, B=128: SZY daje 532x przy max\_err$\approx$19.6; SZ3 daje 470x, ZFP $\sim$126x, Zstd $\sim$38x.
+  \item Dla \texttt{sensor\_airquality\_uci} przy eps=20, B=128: SZY i SZ3 są w tej samej klasie ratio (196x vs 206x), SZY jest szybszy.
+\end{itemize}
+To sugeruje potencjał SZY jako ``klocka'' w pipeline'ach IoT/telemetria, gdzie:
+\begin{itemize}
+  \item strumienie są większe niż możliwość trzymania raw,
+  \item dopuszcza się mały, jawny błąd pomiaru,
+  \item istotna jest szybkość enkodera/decodera na CPU klasy laptop/edge.
+\end{itemize}
+
+\paragraph{Symulacje HPC (CFD, turbulencja, zjawiska mezoskalowe).}
+\begin{itemize}
+  \item Cross-sectiony 2D z plików HDF5/NetCDF (np. Hurricane, Miranda),
+  \item zapisy checkpointów do archiwum (tile-encoded),
+  \item odczyt częściowy przez decode-into (MPI rank odczytuje tylko swój fragment).
+\end{itemize}
+SZY v8 dostarcza tutaj nie tylko ratio, ale i engine: łatwość integracji z istniejącymi kodami Fortrana/C++ (biblioteka C, decode-into buffer).
+
+\subsection{Dlaczego porównania z liderami są konieczne nawet dla niszy}
+Jeżeli buduje się niszę, nadal trzeba porównywać do liderów, bo:
+\begin{itemize}
+  \item rynek rozumie SZ3 i ZFP jako punkty odniesienia (kod naukowy vs ``kodek do obrazków''),
+  \item benchmark ustala mapę trade-off: bitrate vs błąd vs czas,
+  \item porównania ujawniają klasy danych, gdzie warto dodać opcjonalne tryby (np. trend, inne predyktory).
+\end{itemize}
+
+\paragraph{Uwaga o benchmarkach out-of-domain.}
+W testach pojawiają się również dane syntetyczne o strukturze skrajnie niekorzystnej dla aktualnego modelu (np. ostre nieciągłości na granicach tile). Nie są to dane docelowe, ale są użyteczne jako \textbf{benchmark graniczny}: pokazują, kiedy metoda traci efektywność albo powinna jawnie zgłosić błąd bounded-error zamiast udawać sukces.
+
+\subsection{Różnice względem SZ3 i ZFP (co porównujemy, a czego nie)}
+\paragraph{ZFP (rozwiązanie wyspecjalizowane).}
+ZFP \cite{zfp} jest wyspecjalizowany w kompresji tablic FP (blokowo, z trybami fixed-rate/fixed-precision/fixed-accuracy). Jest świetnym punktem odniesienia jako \emph{czysty kodek liczb FP}, ale:
+\begin{itemize}
+  \item nie jest kontenerem-engine (brak SHA, indexu, decode-into w standardzie),
+  \item nie obsługuje uint16 jako typu pierwszej klasy (wymagana konwersja).
+\end{itemize}
+W benchmarkach SZY v8 bardzo często \textbf{bije ZFP przy tym samym eps} pod względem ratio, szczególnie na danych sensorowych i obrazopodobnych.
+
+\paragraph{SZ3 (framework / często maksymalizuje bitrate).}
+SZ3 \cite{sz3} jest modularnym frameworkiem, często osiągającym bardzo wysokie ratio na klasach danych pasujących do jego strategii (zwłaszcza bardzo gładkie pola). Jest dobrym odniesieniem jako ``górna granica'' bitrate w zadanym modelu błędu. 
+Z drugiej strony:
+\begin{itemize}
+  \item jest złożony w konfiguracji i integracji (różne tryby, pipeline),
+  \item nie ma wbudowanego kontenera z SHA i indexem kafelków,
+  \item bywa wolniejszy niż SZY v8 na tych samych datasetach przy tym samym eps.
+\end{itemize}
+
+\paragraph{SZY v8 (pozycja).}
+SZY v8 optymalizuje jednocześnie:
+\begin{itemize}
+  \item bounded L$\infty$ (kontrolowany błąd),
+  \item prędkość encode/decode i MT decode,
+  \item integralność i odporność (SHA),
+  \item ergonomię integracji (decode-into, peek-shape, C API, wrapper Py),
+  \item wsparcie uint16 (istotne dla obrazów).
+\end{itemize}
+Z benchmarków:
+\begin{itemize}
+  \item na gładkich polach klimatycznych SZ3 ma lepszy bitrate (2--3$\times$),
+  \item na realnych danych sensorowych SZY potrafi przebić SZ3 w ratio przy tym samym eps (np. \texttt{sensor\_energy\_uci}),
+  \item SZY konsekwentnie bije ZFP przy tym samym eps i jest znacznie lepszy niż lossless baseline dla większości datasetów.
+\end{itemize}
+
+\subsection{Lossless jako baseline, nie cel}
+W testach pojawiają się kodeki bezstratne (Zstd, Blosc2) jako \textbf{baseline}:
+\begin{itemize}
+  \item pokazują, ile redundancji jest w danych bez strat,
+  \item pozwalają ocenić, czy w ogóle opłaca się lossy dla danej klasy danych,
+  \item nie stanowią celu projektowego SZY v8 (SZY jest projektowany pod lossy scientific).
+\end{itemize}
+
+% =========================================================
+\section{Struktura projektu i moduły}
+Przykładowy układ katalogów:
+\begin{verbatim}
+src/
+  szy_bitplane.h, szy_bitplane.c
+  szy_buf.h,  szy_buf.c
+  szy_bytes.h, szy_bytes.c
+  szy_endian.h
+  szy_varuint.h, szy_varuint.c
+  szy_sha256.h, szy_sha256.c
+  szy_container_v8.h, szy_container_v8.c
+  szy_tile_v8.h, szy_tile_v8.c
+  szy_parallel.h, szy_parallel.c
+  szy_decode_v8.h, szy_decode_v8.c
+  szy_encode_v8.h, szy_encode_v8.c
+  szy_encode_f32.c
+  szy_encode_u16.c
+  szy_hw.h, szy_hw.c
+  szy_rc.h
+  szy_errors.c
+  szy_exports.c
+include/
+  szy_api.h
+  szy_dll.h
+\end{verbatim}
+
+\subsection{Opis modułów (pełny skrót)}
+\label{subsec:modules_full_short}
+\paragraph{Uwaga o zapisie \texttt{.[ch]}.}
+W dokumentacji stosowany jest skrót \texttt{foo.[ch]} oznaczający \textbf{parę plików} \texttt{foo.c} (implementacja) oraz \texttt{foo.h} (deklaracje). Jest to konwencja techniczna, a nie rzeczywiste rozszerzenie pliku.
+
+\begin{itemize}
+  \item \texttt{szy\_bitplane.[ch]}: pomocniczy moduł transformacji bitplanów 16-bitowych (u16) --- aktualna wersja implementuje \texttt{szy\_bitplane\_shuffle\_u16()} i \texttt{szy\_bitplane\_unshuffle\_u16()}, gotowe do użycia w pipeline (C-encoder v8 domyślnie używa shuffle16, ale bitplane jest w pełni zaimplementowane i może zostać włączone w kolejnych wersjach API).
+  \item \texttt{szy\_buf.[ch]}: writer rosnącego bufora, zapisy typów LE.
+  \item \texttt{szy\_bytes.[ch]}: reader/cursor do bezpiecznego parsowania (kontrola zakresów).
+  \item \texttt{szy\_endian.h}: przenośne store/load dla u16/u32/u64 oraz f32/f64 w LE.
+  \item \texttt{szy\_varuint.[ch]}: varuint decode/encode (7-bit payload + MSB continuation).
+  \item \texttt{szy\_sha256.[ch]}: implementacja SHA-256 (bez zależności zewnętrznych).
+  \item \texttt{szy\_container\_v8.[ch]}: parse kontenera v8, weryfikacja SHA, odczyt indeksu długości tile.
+  \item \texttt{szy\_tile\_v8.[ch]}: dekodowanie pojedynczego tile record (entropia + undo transformacji + predyktor).
+  \item \texttt{szy\_parallel.[ch]}: równoległy decode tile na podstawie indeksu (Windows/POSIX).
+  \item \texttt{szy\_decode\_v8.[ch]}: decode całego obrazu (alokacja wyjścia) oraz logika wyboru trybu parallel/sequential.
+  \item \texttt{szy\_encode\_v8.[ch]}: encode całego obrazu, budowa kontenera, eventy, entropia (ZSTD/ZLIB/NONE), transformacje (Lorenzo, bias, zigzag, shuffle16/bitplane).
+  \item \texttt{szy\_encode\_f32.c, szy\_encode\_u16.c}: wrappery typów (rzucony na f64 pipeline).
+  \item \texttt{szy\_hw.[ch]}: \texttt{szy\_hw\_threads()} + walidacja \texttt{num\_workers} (strict/relaxed).
+  \item \texttt{szy\_exports.c}: eksporty DLL, API \texttt{*\_ex} (wątki na zewnątrz).
+  \item \texttt{szy\_errors.c}: \texttt{szy\_strerror()}.
+\end{itemize}
+
+\subsection{Kluczowe struktury biblioteki (C API)}
+Dla klienta C/C++ istotne są następujące typy:
+
+\paragraph{\texttt{szy\_enc\_cfg\_t}.}
+Struktura konfiguracji encodera:
+\begin{lstlisting}[style=cstyle,language=C]
+typedef struct {
+  int block;                 /* np. 64/128 */
+  int qbits;                 /* 8 lub 16 */
+  szy_quant_mode_t qmode;    /* strict/robust */
+  double qpercentile;        /* np. 99.5 przy robust */
+
+  /* bounded error model */
+  double target_abs_err;     /* eps; <=0 => bounded-error off */
+  double bounded_safety;     /* np. 0.98 */
+  double quant_err_factor;   /* np. 2.0 */
+
+  /* events */
+  int events_on;             /* 0/1 */
+  int events_max_per_tile;   /* np. 2048 */
+  double events_max_frac;    /* np. 0.01 */
+
+  /* entropy */
+  szy_entropy_t ent;         /* ZSTD/ZLIB/NONE */
+  int zstd_level;            /* 1..22 */
+
+  /* transforms */
+  int use_zigzag;
+  int byte_shuffle_16;
+  int use_bitplane_shuffle;  /* infrastruktura gotowa, domyślnie 0 */
+
+  /* weryfikacja post-factum (opcjonalnie) */
+  int verify_after_encode;   /* 0/1 */
+} szy_enc_cfg_t;
+\end{lstlisting}
+Typowa konfiguracja używana przez DLL ustawia:
+\begin{itemize}
+  \item \texttt{qbits=16}, \texttt{qmode=strict}, \texttt{target\_abs\_err=eps},
+  \item \texttt{events\_on=1}, odpowiedni budżet eventów,
+  \item entropię ZSTD (lvl=3),
+  \item zigzag + shuffle16 (bitplane off w v8 DLL).
+\end{itemize}
+
+\paragraph{\texttt{szy\_container\_hdr\_t}.}
+Struktura nagłówka kontenera po \texttt{szy\_container\_unpack\_v8()}:
+\begin{lstlisting}[style=cstyle,language=C]
+typedef struct {
+  uint16_t H, W, block;
+  uint8_t version;
+  uint8_t flags;
+
+  int index_present;
+  uint32_t ntiles;
+  uint32_t* tile_lengths; /* optional; malloc'd */
+
+  size_t data_start;
+  size_t tiles_start;
+  size_t data_end;
+} szy_container_hdr_t;
+\end{lstlisting}
+Używana wewnętrznie przez dekoder i w \texttt{szy\_peek\_shape\_v8}.
+
+\paragraph{\texttt{szy\_bw\_t} (writer) i \texttt{szy\_rd\_t} (reader).}
+Proste struktury do robienia zapisu/odczytu binarnego z kontrolą zakresów i łatwym zarządzaniem buforem:
+\begin{lstlisting}[style=cstyle,language=C]
+typedef struct {
+  uint8_t* p;
+  size_t n;
+  size_t cap;
+} szy_bw_t;
+
+typedef struct {
+  const uint8_t* p;
+  size_t n;
+  size_t pos;
+} szy_rd_t;
+\end{lstlisting}
+
+\subsection{Wrapper Python: klasa \texttt{SzyDLL}}
+Do benchmarków używany jest prosty wrapper ctypes:
+\begin{lstlisting}[style=txtstyle,caption={Klasa SzyDLL (Python, bench_common.py)}]
+class SzyDLL:
+    def __init__(self, dll_path: str):
+        self.dll_path = os.path.abspath(dll_path)
+        self.lib = ctypes.CDLL(self.dll_path)
+        # mapowanie funkcji DLL na sygnatury ctypes (...)
+    def compress(self, x: np.ndarray, eps: float, block: int, num_workers: int) -> bytes:
+        # wybór szy_compress_*_ex w zależności od dtype (f64/f32/u16)
+        # zwrot bajtów kontenera
+    def decompress_into_f64(self, blob: bytes, out: np.ndarray,
+                            num_workers: int, parallel_min_tiles: int) -> (int, int):
+        # wywołanie szy_decompress_into_buffer_ex2
+\end{lstlisting}
+Dzięki temu benchmarki w Pythonie widzą SZY jako ``normalny'' kodek (tak jak zfpy, pysz, zstandard), a cały engine (SHA, index, decode-into) pozostaje w C.
+
+% =========================================================
+\section{Metryki i definicje}
+
+\subsection{Rozmiar, ratio, bpp}
+\begin{itemize}
+  \item \textbf{ratio} = $\frac{\text{raw\_bytes}}{\text{compressed\_bytes}}$
+  \item \textbf{bpp} (bits-per-pixel) = $\frac{8\cdot \text{compressed\_bytes}}{H\cdot W}$
+\end{itemize}
+
+\subsection{Błędy}
+\begin{itemize}
+  \item \textbf{max\_err} = $\max_i |x_i - \hat{x}_i|$
+  \item \textbf{RMSE} = $\sqrt{\frac{1}{N}\sum_i (x_i-\hat{x}_i)^2}$
+  \item \textbf{p99\_err} = 99 percentyl $|x_i-\hat{x}_i|$
+\end{itemize}
+
+\subsection{Skala danych vs eps (ważne w benchmarkach)}
+Auto-suite i benchmark publiczny raportują p01/p99/std. W praktyce:
+\[
+  \texttt{eps\_over\_range} = \frac{\varepsilon}{p99-p01}
+\]
+umożliwia porównywanie „agresywności eps” między datasetami o różnych skalach.
+
+% =========================================================
+\section{Specyfikacja przenośna: typy, endianness, varuint}
+
+\subsection{Endianness}
+W kontenerze i tile record liczby stałej długości są kodowane w \textbf{little-endian}:
+\texttt{u8, u16le, u32le, u64le, i16le, f32le, f64le}. Floaty są IEEE-754.
+
+\subsection{Varuint}
+Varuint koduje \texttt{uint64} jako sekwencję bajtów:
+\begin{itemize}
+  \item każdy bajt przenosi 7 bitów wartości,
+  \item bit MSB=1 oznacza kontynuację,
+  \item bit MSB=0 kończy liczbę.
+\end{itemize}
+
+% =========================================================
+\section{Format kontenera SZ2D v8 --- pełna specyfikacja}
+
+\subsection{Layout kontenera (normatywnie)}
+\begin{longtable}{@{}llll@{}}
+\caption{Kontener SZ2D v8: layout binarny (kolejność pól).}
+\label{tab:container_layout}\\
+\toprule
+Pole & Typ & Rozmiar & Opis \\
+\midrule
+\endfirsthead
+\toprule
+Pole & Typ & Rozmiar & Opis \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+
+magic & bytes & 4 & ASCII \texttt{"SZ2D"} \\
+version & u8 & 1 & wartość \texttt{8} \\
+flags & u8 & 1 & bit0: \texttt{index\_present} \\
+H & u16le & 2 & wysokość obrazu \\
+W & u16le & 2 & szerokość obrazu \\
+B & u16le & 2 & rozmiar tile (blok) \\
+meta\_len & u16le & 2 & długość metadanych \\
+meta & bytes & meta\_len & blob (np. JSON) \\
+data\_sha & bytes & 32 & SHA256(\texttt{data\_section}) \\
+data\_section & bytes & var & \texttt{index\_blob || tiles\_blob} \\
+container\_sha & bytes & 32 & SHA256(kontener bez tego pola) \\
+\end{longtable}
+
+\subsection{Znaczenie \texttt{flags}}
+\begin{itemize}
+  \item \texttt{flags \& 1} = 1: indeks tile jest obecny na początku \texttt{data\_section}.
+  \item \texttt{flags \& 1} = 0: brak indeksu; tile records idą sekwencyjnie.
+\end{itemize}
+
+\subsection{Index blob}
+Jeśli indeks jest obecny, \texttt{data\_section} zaczyna się od:
+\begin{itemize}
+  \item \texttt{ntiles} (varuint),
+  \item \texttt{tile\_len[i]} (varuint) dla i=0..ntiles-1,
+  \item następnie \texttt{tiles\_blob}: sklejone tile recordy.
+\end{itemize}
+
+\subsection{Integralność (SHA) i kody błędów}
+\begin{itemize}
+  \item \texttt{SZY\_E\_SHA\_CONT}: mismatch SHA kontenera,
+  \item \texttt{SZY\_E\_SHA\_DATA}: mismatch SHA sekcji danych.
+\end{itemize}
+
+\subsection{Wymagania i walidacje (implementacja referencyjna)}
+Parser w C weryfikuje m.in.:
+\begin{itemize}
+  \item \texttt{magic="SZ2D"} i \texttt{version=8},
+  \item \texttt{H,W,B>0},
+  \item poprawne granice sekcji danych,
+  \item spójność indeksu (sumy długości tile),
+  \item zgodność SHA.
+\end{itemize}
+
+% =========================================================
+\section{Format tile record v8 --- pełna specyfikacja}
+
+\paragraph{Uwaga: specyfikacja formatu vs bieżąca implementacja C-encodera.}
+Specyfikacja tile record v8 obejmuje pola i tryby, które dekoder referencyjny rozumie z powodów kompatybilności i rozszerzalności. Nie oznacza to, że bieżący C-encoder generuje wszystkie warianty. W szczególności aktualny C-encoder:
+\begin{itemize}
+  \item używa predyktora Lorenzo2D,
+  \item nie generuje trendów innych niż \texttt{TREND\_NONE},
+  \item posiada infrastrukturę shuffle16 \emph{i} bitplane shuffle dla qbits=16, ale DLL v8 domyślnie używa shuffle16; bitplane może być włączone w kompilacjach eksperymentalnych,
+  \item nie generuje już \texttt{amp\_mode=2} (float16) dla nowych strumieni (dekoder nadal akceptuje tryb 2 wyłącznie dla zgodności wstecz).
+\end{itemize}
+
+\subsection{ID i flagi}
+\paragraph{Entropy ID (\texttt{ent\_id}).}
+\begin{itemize}
+  \item 0: ZLIB
+  \item 2: NONE
+  \item 3: ZSTD
+\end{itemize}
+
+\paragraph{Predictor ID (\texttt{pred\_id}).}
+\begin{itemize}
+  \item 0: Lorenzo2D (używane przez C-encoder v8)
+  \item (dekoder wspiera także DIFFX/DIFFY jako kompatybilność)
+\end{itemize}
+
+\paragraph{Tile flags (\texttt{flags}).}
+\begin{itemize}
+  \item bit0 (1): SHUFFLE16
+  \item bit1 (2): ZIGZAG
+  \item bit2 (4): BITPLANE (dekoder wspiera; C-encoder v8 DLL domyślnie nie używa, ale kod shuffle/unshuffle jest włączony)
+\end{itemize}
+
+\subsection{Layout tile record (normatywnie)}
+\begin{longtable}{@{}llll@{}}
+\caption{Tile record v8: layout binarny (kolejność pól).}
+\label{tab:tile_layout}\\
+\toprule
+Pole & Typ & Rozmiar & Opis \\
+\midrule
+\endfirsthead
+\toprule
+Pole & Typ & Rozmiar & Opis \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+
+th & u16le & 2 & wysokość tile (powinna równać się B) \\
+tw & u16le & 2 & szerokość tile (powinna równać się B) \\
+trend\_id & u8 & 1 & 0=none (C-encoder v8) \\
+qbits & u8 & 1 & 8 lub 16 \\
+qmode & u8 & 1 & 0=strict, 1=robust (dekoder ignoruje) \\
+events\_id & u8 & 1 & 0=off, 1=on \\
+ent\_id & u8 & 1 & 0=zlib,2=none,3=zstd \\
+flags & u8 & 1 & shuffle/zigzag/bitplane \\
+pred\_id & u8 & 1 & 0=Lorenzo2D \\
+trend\_params\_len & u8 & 1 & 0/3/6 (liczba f64) \\
+trend\_params & f64le[] & 8*len & parametry trendu \\
+inv\_scale & f64le & 8 & skala kwantyzacji \\
+mean & f64le & 8 & średnia tile \\
+clip\_rate & f32le & 4 & statystyka informacyjna \\
+bias & i16le & 2 & bias medianowy delt \\
+has\_pred\_params & u8 & 1 & jeśli 1: 16B reserved \\
+pred\_params & bytes & 16 & reserved \\
+ne & varuint & var & liczba eventów \\
+idx\_len & varuint & var & długość idx\_bytes \\
+idx\_bytes & bytes & idx\_len & indeksy (delta-coded varuint) \\
+amp\_mode & u8 & 1 & format amplitud \\
+amp\_blob & bytes & var & amplitudy wg trybu \\
+payload\_len & varuint & var & długość payload \\
+payload & bytes & payload\_len & dane skompresowane entropijnie \\
+\end{longtable}
+
+\subsection{Eventy: indeksy i amplitudy}
+\paragraph{Indeksy.}
+Kodowane jako varuint różnic (delta coding) po indeksach w spłaszczonym tile (row-major).
+
+\paragraph{Amplitudy.}
+\texttt{amp\_mode} definiuje reprezentację amplitud eventów:
+\begin{itemize}
+  \item 0: scale (f64le) + \texttt{ne} bajtów int8,
+  \item 1: scale (f64le) + \texttt{ne} wartości int16le,
+  \item 2: \texttt{ne} wartości float16 (u16le) --- tryb legacy, tylko do odczytu,
+  \item 3: \texttt{ne} wartości float32le.
+\end{itemize}
+
+\paragraph{Stan aktualny C-encodera v8.}
+Aktualna implementacja C-encodera \textbf{nie generuje już trybu 2 (float16)} dla nowych strumieni, ponieważ dla dużych amplitud mógł on prowadzić do wartości niefinitych i niestabilnej rekonstrukcji. Dekoder nadal akceptuje \texttt{amp\_mode=2} wyłącznie w celu \textbf{zgodności wstecz} z wcześniejszymi plikami.
+
+\paragraph{Znaczenie eventów dla bounded-error.}
+Eventy reprezentują lokalne odchylenia, których nie da się efektywnie obsłużyć samą kwantyzacją i predykcją przy zadanym \texttt{eps}. Jeśli liczba wymaganych eventów przekracza budżet narzucony konfiguracją klienta, silnik nie powinien „udawać sukcesu”; powinien zwrócić błąd bounded-error (por.\ sekcja o kodach błędów).
+
+\subsection{Payload i oczekiwany rozmiar po dekompresji}
+Po dekompresji entropijnej payload musi mieć rozmiar:
+\[
+  \texttt{expected} = \texttt{npix}\cdot \frac{\texttt{qbits}}{8},
+  \quad \texttt{npix}=\texttt{th}\cdot\texttt{tw}.
+\]
+
+% =========================================================
+\section{Algorytm: encode/decode (szczegółowo)}
+
+\subsection{Encode: kroki na tile}
+Dla tile $B\times B$ (npix=$B^2$):
+\begin{enumerate}
+  \item Oblicz średnią $\mu$ i wycentruj tile: $c_i = x_i - \mu$.
+  \item (Opcjonalnie) eventy: wytnij rzadkie odchylenia $|c_i|$ powyżej progu do listy (idx+amp), o ile mieszczą się w budżecie eventów narzuconym konfiguracją.
+  \item Ustal \texttt{inv\_scale} dla kwantyzacji (zależnie od trybu i eps).
+  \item Kwantyzuj do int8/int16: $q_i = \mathrm{round}(c_i\cdot inv\_scale)$, z clip.
+  \item Predykcja Lorenzo2D na $q$ $\rightarrow$ delty $d$ (mod $2^{qbits}$).
+  \item Bias medianowy delt: $d'_i = d_i - bias$ (bias liczymy jako medianę signed).
+  \item (Opcjonalnie) zigzag: signed $\rightarrow$ unsigned.
+  \item (Dla qbits=16) shuffle16 lub bitplane shuffle (jeśli włączony w konfiguracji).
+  \item Entropy coding: ZSTD/ZLIB/NONE.
+  \item Zapis tile record: nagłówek + parametry + eventy + payload.
+\end{enumerate}
+
+\paragraph{Ważna własność aktualnej implementacji.}
+Jeżeli w bounded-error mode liczba wymaganych eventów przekracza ograniczenia (\texttt{events\_max\_per\_tile}, \texttt{events\_max\_frac}), encoder \textbf{zwraca} \texttt{SZY\_E\_BOUNDS}. Dodatkowo wprowadzono mechanizm wewnętrznego fallbacku per-tile (np. rozluźnienie eps, wyłączenie eventów) w implementacji, ale z punktu widzenia kontraktu zewnętrznego \textbf{bounded-error ma pierwszeństwo}: jeśli nie da się go utrzymać, lepiej zwrócić błąd niż złamać warunek.
+
+\subsection{Decode: kroki na tile}
+\begin{enumerate}
+  \item Odczyt tile record.
+  \item Dekompress payload (ZSTD/ZLIB/NONE) $\rightarrow$ body o rozmiarze \texttt{expected}.
+  \item Undo shuffle16 lub bitplane (jeśli flagi).
+  \item Undo zigzag (jeśli flaga).
+  \item Bias: $d_i = d'_i + bias$.
+  \item Predyktor inverse (Lorenzo2D) $\rightarrow$ $q_i$.
+  \item Dekwantyzacja: $c_i \approx q_i / inv\_scale$.
+  \item Odtworzenie wartości: $\hat{x}_i = c_i + \mu + trend(i,j)$.
+  \item Dodanie eventów (jeśli obecne): $\hat{x}_{idx_k} \mathrel{+}= amp_k$.
+\end{enumerate}
+
+% =========================================================
+\section{Równoległość: decode i encode po tile}
+
+\subsection{Decode parallel}
+Jeśli indeks jest obecny, silnik oblicza offsety tile na podstawie długości i uruchamia workerów.
+W implementacji referencyjnej:
+\begin{itemize}
+  \item POSIX: prosty thread-pool (pthreads),
+  \item Windows: pula workerów (stała liczba), nie ``thread per tile''.
+\end{itemize}
+
+\subsection{Encode parallel}
+Encode może być wykonywany równolegle po tile, a następnie tile records są sklejane w kolejności deterministycznej (ti=0..ntiles-1) w celu utrzymania powtarzalnego kontenera.
+
+% =========================================================
+\section{API silnika (DLL) i kody błędów}
+
+\subsection{Kody błędów}
+\begin{lstlisting}[style=cstyle,language=C,caption={Kody błędów (szy\_rc.h)}]
+typedef enum {
+  SZY_OK           = 0,
+  SZY_EINVAL       = -1,
+  SZY_E_SHA_CONT   = -2,
+  SZY_E_SHA_DATA   = -3,
+  SZY_E_INDEX      = -4,
+  SZY_E_DIMS       = -5,
+  SZY_E_BLOCK      = -6,
+  SZY_E_TILECOUNT  = -7,
+  SZY_E_OVERFLOW   = -8,
+  SZY_E_OOM        = -9,
+  SZY_E_TILE       = -10,
+  SZY_E_THREADS    = -11,
+  SZY_E_BOUNDS     = -12
+} szy_rc_t;
+\end{lstlisting}
+
+\paragraph{Opis kodów błędów (znaczenie praktyczne).}
+Same nazwy i wartości liczbowe nie są wystarczające w dokumentacji użytkowej; poniższa tabela opisuje, \emph{co dany błąd oznacza} i \emph{w jakich sytuacjach typowo się pojawia}.
+
+\begin{table}[H]
+\centering
+\caption{Znaczenie kodów błędów SZY v8 (kontrakt API).}
+\label{tab:error_codes_meaning}
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{@{}rllp{8.8cm}@{}}
+\toprule
+Kod & Symbol & Klasa & Znaczenie / typowe przyczyny \\
+\midrule
+0   & \texttt{SZY\_OK} & OK &
+Sukces. Operacja zakończona poprawnie. \\
+-1  & \texttt{SZY\_E\_INVAL} & Input/Format &
+Niepoprawny argument lub uszkodzony/niezgodny format (np. złe magic/version, niepoprawne pola tile, błędne długości, niepoprawny payload). \\
+-2  & \texttt{SZY\_E\_SHA\_CONT} & Integrity &
+Mismatch SHA256 kontenera (korupcja kontenera lub niezgodność danych). \\
+-3  & \texttt{SZY\_E\_SHA\_DATA} & Integrity &
+Mismatch SHA256 sekcji danych (index+tile blob). \\
+-4  & \texttt{SZY\_E\_INDEX} & Format/Index &
+Indeks tile jest niespójny (sumy długości, offsety wychodzą poza \texttt{data\_end}, korupcja index blob). \\
+-5  & \texttt{SZY\_E\_DIMS} & Input &
+Nieprawidłowe wymiary \texttt{H/W/B} (np. 0 lub przekroczenie limitów). \\
+-6  & \texttt{SZY\_E\_BLOCK} & Input &
+Wymiary niepodzielne przez blok \texttt{B} (w decode) lub inny błąd warunku blokowego. \\
+-7  & \texttt{SZY\_E\_TILECOUNT} & Format &
+Niezgodna liczba kafli (\texttt{ntiles}) względem \texttt{H/W/B}. \\
+-8  & \texttt{SZY\_E\_OVERFLOW} & Safety &
+Przepełnienie rozmiaru (np. w obliczeniach offsetów/alokacji). \\
+-9  & \texttt{SZY\_E\_OOM} & Resources &
+Brak pamięci (alokacja nie powiodła się). \\
+-10 & \texttt{SZY\_E\_TILE} & Decode &
+Błąd dekodowania kafla (np. dekompresja entropijna niezgodna z oczekiwaną długością, nieobsługiwany wariant, niespójne pola tile). \\
+-11 & \texttt{SZY\_E\_THREADS} & Config &
+Żądana liczba wątków przekracza dostępne wątki sprzętowe (w trybie strict). \\
+-12 & \texttt{SZY\_E\_BOUNDS} & Quality/Bound &
+Kontrolowana odmowa kompresji: przy bieżącej konfiguracji bounded-error (np. \texttt{eps}, blok, budżet eventów) silnik nie może zagwarantować \texttt{max\_err} w zadanym modelu. To \textbf{nie} jest korupcja danych. \\
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\end{table}
+
+\subsection{Zasady pamięci (ABI)}
+\begin{itemize}
+  \item Bufor wyjściowy z \texttt{compress} jest alokowany w DLL i musi być zwolniony przez \texttt{szy\_free\_buffer()}.
+  \item \texttt{decode-into} zapisuje do bufora użytkownika bez dodatkowych kopii (wymaga bufora odpowiedniego rozmiaru).
+\end{itemize}
+
+\subsection{Polityka wątków}
+\begin{itemize}
+  \item \texttt{szy\_hw\_threads()} zwraca liczbę dostępnych wątków sprzętowych.
+  \item API \texttt{*\_ex} przyjmuje \texttt{num\_workers}:
+    \begin{itemize}
+      \item 0 = auto,
+      \item $>0$ = wymuszone.
+    \end{itemize}
+  \item Gdy żądana liczba wątków przekracza dostępne: \texttt{SZY\_E\_THREADS}.
+\end{itemize}
+
+\subsection{Semantyka błędów API}
+Nie wszystkie błędy zwracane przez API oznaczają uszkodzony plik lub błąd implementacji. W praktyce:
+\begin{itemize}
+  \item \texttt{SZY\_E\_SHA\_*}, \texttt{SZY\_E\_INDEX}, \texttt{SZY\_E\_TILE} wskazują na problem integralności lub poprawności strumienia,
+  \item \texttt{SZY\_E\_THREADS} wskazuje na błędną konfigurację wykonania,
+  \item \texttt{SZY\_E\_BOUNDS} wskazuje na sytuację, w której przy bieżących ustawieniach modelu nie da się spełnić bounded-error dla danych wejściowych.
+\end{itemize}
+
+Z punktu widzenia systemowego \texttt{SZY\_E\_BOUNDS} jest zachowaniem pożądanym: lepiej jawnie odmówić kompresji niż zwrócić strumień łamiący deklarowane ograniczenie błędu.
+
+\subsection{Wybrane eksporty DLL (silnik)}
+\begin{lstlisting}[style=cstyle,language=C,caption={Wybrane funkcje DLL (include/szy\_dll.h)}]
+SZY_API int szy_hw_threads(void);
+SZY_API void szy_free_buffer(void* ptr);
+SZY_API const char* szy_strerror(int code);
+
+SZY_API int szy_peek_shape_v8(const uint8_t* buf, size_t n,
+                              int* H, int* W, int* B);
+
+/* decode into */
+SZY_API int szy_decompress_into_buffer_ex2(
+    const uint8_t* buf, size_t n,
+    double* out, size_t out_elems,
+    int num_workers, int parallel_min_tiles,
+    int* H, int* W);
+
+/* threaded compress (float64/f32/u16) */
+SZY_API int szy_compress_buffer_ex(
+    double* x, int H, int W, double eps, int B, int num_workers,
+    uint8_t** out_buf, size_t* out_n);
+
+SZY_API int szy_compress_f32_ex(...);
+SZY_API int szy_compress_u16_ex(...);
+\end{lstlisting}
+
+\subsection{Opis funkcji DLL (do czego służą i jak ich używać)}
+Poniższy opis odnosi się do Listingu powyżej (wybrane eksporty). Celem jest jednoznaczne wyjaśnienie semantyki parametrów, pamięci i kodów zwrotnych.
+
+\paragraph{\texttt{szy\_hw\_threads()}.}
+Zwraca liczbę dostępnych wątków sprzętowych (co najmniej 1). Funkcja jest przydatna do ustawienia \texttt{num\_workers=0} (auto) lub do walidacji, czy aplikacja nie żąda zbyt wielu wątków.
+
+\paragraph{\texttt{szy\_free\_buffer(ptr)}.}
+Zwalnia bufor zaalokowany przez DLL (np. wynik \texttt{compress}). \textbf{Kontrakt:} ten wskaźnik musi pochodzić z SZY; nie wolno go zwalniać inną metodą (np. \texttt{free()} w aplikacji), aby nie mieszać allocatorów.
+
+\paragraph{\texttt{szy\_strerror(code)}.}
+Zwraca stały napis opisujący kod błędu. Pomocne w logach i diagnostyce.
+
+\paragraph{\texttt{szy\_peek\_shape\_v8(buf,n,H,W,B)}.}
+Odczytuje tylko nagłówek kontenera i zwraca wymiary (H,W) oraz blok (B) \textbf{bez dekodowania danych}. Funkcja weryfikuje integralność kontenera (SHA) tak jak standardowy unpack.
+
+\paragraph{\texttt{szy\_decompress\_into\_buffer\_ex2(...) } (decode-into).}
+Dekoduje kontener do bufora użytkownika:
+\begin{itemize}
+  \item \texttt{out} wskazuje na tablicę \texttt{double} o rozmiarze co najmniej \texttt{H*W} elementów,
+  \item \texttt{out\_elems} to liczba elementów w \texttt{out} (nie bajtów),
+  \item \texttt{num\_workers}: 0=auto, >0=żądana liczba wątków (tryb strict),
+  \item \texttt{parallel\_min\_tiles} określa od ilu tile opłaca się przejść w tryb równoległy.
+\end{itemize}
+W przypadku błędu dekodera zawartość \texttt{out} należy uznać za nieważną.
+
+\paragraph{\texttt{szy\_compress\_buffer\_ex(...)}, \texttt{szy\_compress\_f32\_ex(...)}, \texttt{szy\_compress\_u16\_ex(...)}.}
+Kodują odpowiednio macierz \texttt{double}, \texttt{float} lub \texttt{uint16} do bufora kontenera SZ2D v8.
+\begin{itemize}
+  \item \texttt{eps} jest parametrem modelu bounded-error (absolutny bound),
+  \item \texttt{B} to rozmiar tile (np. 64 lub 128),
+  \item \texttt{num\_workers}: 0=auto, >0=żądana liczba wątków (tryb strict),
+  \item \texttt{out\_buf/out\_n} są wypełniane przy sukcesie; \texttt{out\_buf} musi być zwolnione przez \texttt{szy\_free\_buffer()}.
+\end{itemize}
+Encoder może zwrócić \texttt{SZY\_E\_BOUNDS}, jeśli przy zadanym \texttt{eps} i konfiguracji wewnętrznej nie jest w stanie dotrzymać bounded-error.
+
+% =========================================================
+\section{Kompilacja (Windows/MSVC)}
+
+\begin{lstlisting}[style=cstyle,language=bash,caption={Kompilacja DLL (MSVC, aktualna)}]
+cmd /c "vcvars64.bat && cd /d D:\projekt\SzKompresor && cl /nologo /O2 /W4 /MD /LD /DSZY_BUILD_DLL ^
+  src\szy_bytes.c src\szy_varuint.c src\szy_container_v8.c src\szy_tile_v8.c src\szy_buf.c src\szy_sha256.c ^
+  src\szy_bitplane.c ^
+  src\szy_hw.c ^
+  src\szy_encode_v8.c src\szy_encode_f32.c src\szy_encode_u16.c ^
+  src\szy_decode_v8.c src\szy_parallel.c src\szy_errors.c src\szy_exports.c ^
+  /I include /I src ^
+  /Fe:szytool.dll ^
+  /link /LIBPATH:static zstd_static.lib zlib_static.lib"
+\end{lstlisting}
+
+% =========================================================
+\section{Testy inżynieryjne i benchmarki: metodologia}
+
+\subsection{Identyfikacja artefaktu (SHA256 DLL)}
+Przykładowy run auto-suite:
+\begin{lstlisting}[style=txtstyle,caption={SHA256 DLL (przykład)}]
+dll_sha256 = 02a9664d540776734d91c93b8355723787f140532808f148a685dac46ff12ade
+\end{lstlisting}
+
+\subsection{Dwa poziomy testów: auto-suite syntetyczny i benchmark publiczny}
+Dla pełnego obrazu stosowane są dwa narzędzia:
+
+\begin{itemize}
+  \item \textbf{Auto-suite v1 (syntetyki + MNIST/Fashion-MNIST)}: starszy skrypt
+        \texttt{compare\_all\_szy\_sz3\_zfp\_lossless\_ONEFILE2.py}, który generuje syntetyki, pobiera MNIST/Fashion-MNIST i buduje mozaiki 2D. Pozostaje przydatny jako stres-test i regresja.
+  \item \textbf{Benchmark publiczny v3 (bench\_public.py)}: nowy skrypt opisany poniżej, który używa otwartych, publicznych danych: GeoTIFF (obraz satelitarny), sensory UCI, dane klimatyczne syntetyczne i placeholdery medyczne/astro.
+\end{itemize}
+
+\subsection{Benchmark publiczny (bench\_public.py): dane i kodeki}
+Skrypt \texttt{bench\_public.py}:
+\begin{itemize}
+  \item używa wrappera \texttt{SzyDLL} (ctypes) do wywoływania \texttt{szy\_compress\_*} i \texttt{szy\_decompress\_into\_buffer\_ex2},
+  \item wykorzystuje taką samą metrykę błędu dla wszystkich kodeków (max\_err, RMSE, p99\_err),
+  \item testuje następujące kodeki:
+        \begin{itemize}
+          \item SZY v8 (DLL),
+          \item SZ3 (pysz),
+          \item ZFP (zfpy),
+          \item Zstd (python zstandard, lossless),
+          \item Blosc2 (zstd, lossless).
+        \end{itemize}
+  \item generuje:
+        \begin{itemize}
+          \item \texttt{compare\_all.json} --- pełne wyniki,
+          \item \texttt{compare\_all.csv} --- tabela wszystkich wierszy,
+          \item \texttt{report.md} --- krótki raport tekstowy,
+          \item katalog \texttt{plots/} --- wykresy PNG ratio/max\_err per dataset.
+        \end{itemize}
+\end{itemize}
+
+\paragraph{Publiczne datasety w benchmarku.}
+\begin{itemize}
+  \item \textbf{sat\_landsat\_L8\_B4\_001002\_20160816}:
+        GeoTIFF sample \texttt{RGB.byte.tif} z repozytorium Rasterio (band 1, uint8 zrzutowany do uint16),
+        rozmiar po padzie: 768$\times$896.
+  \item \textbf{sat\_placeholder\_2048x2048}:
+        syntetyczny gradient uint16 0..65535 (stress-test dla lossless).
+  \item \textbf{med\_placeholder\_ct\_512x512}:
+        syntetyczny CT-like uint16 (4 kwadranty + szum).
+  \item \textbf{astro\_placeholder\_ccd\_2048x2048}:
+        syntetyczne CCD-like uint16 (szum + ``gwiazdy'').
+  \item \textbf{clim\_placeholder\_temp\_720x1440}:
+        syntetyczne pole temperatury f32 (lat/lon + sinusoidalny moduł).
+  \item \textbf{sensor\_temp\_daily\_min}:
+        seria czasowa dziennych temperatur minimalnych (jbrownlee), złożona w macierz.
+  \item \textbf{sensor\_airquality\_uci}, \textbf{sensor\_energy\_uci}:
+        dane z repozytorium UCI (AirQuality, Energy) zredukowane do 2D NP tablic f64.
+\end{itemize}
+
+\paragraph{Używane biblioteki Pythona (benchmark).}
+\begin{itemize}
+  \item NumPy --- przetwarzanie macierzy, obliczanie błędów.
+  \item \texttt{netCDF4}, \texttt{rasterio} --- dla wersji, które korzystają z realnych NetCDF/GeoTIFF (w tej chwili AVHRR/ocean samples są opcjonalne, wymagają dostępności plików w repo Unidata; przy 404 są elegancko pomijane).
+  \item \texttt{pandas}, \texttt{matplotlib}, \texttt{zfpy}, \texttt{pysz}, \texttt{zstandard}, \texttt{blosc2}.
+\end{itemize}
+
+\subsection{Auto-suite v1: syntetyki + MNIST/Fashion-MNIST (starszy pipeline)}
+Sekcja o MNIST/Fashion-MNIST (mozaiki 2688$\times$2688) pochodzi z wcześniejszego auto-suite i pozostaje aktualna konceptualnie, choć najnowszy zestaw testów (bench\_public) koncentruje się na innych klasach danych (climate/sensor/satelita/CT/astro). Wyniki MNIST/Fashion-MNIST są nadal przydatne jako scenariusz obrazopodobny i regresja (pokazują, że SZY spełnia eps i jest konkurencyjny z SZ3 przy integerowych obrazach 0..255).
+
+% =========================================================
+\section{Wyniki (manual): granula 10880$\times$10880 float64}
+
+\subsection{Porównanie z SZ3/ZFP i baseline lossless}
+Dla granuli 10880$\times$10880 float64 oraz eps=10, B=128 (wartości przykładowe z runu manual):
+
+\begin{table}[H]
+\centering
+\caption{Granula 10880$\times$10880 float64 (eps=10, B=128): porównanie kodeków (przykład).}
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{@{}lrrrrrrrr@{}}
+\toprule
+Kodek & size [B] & ratio & bpp & enc [ms] & dec [ms] & max\_err & RMSE & p99\_err \\
+\midrule
+SZY v8 (enc\_thr=0, dec\_thr=0) & 56821592 & 16.666 & 3.840 & 2480 & 1357 & 9.8 & 5.658 & 9.701 \\
+SZ3 (pysz), ABS eps=10         & 53413190 & 17.730 & 3.610 & 5574 & 3755 & 10.0 & 5.769 & 9.900 \\
+ZFP (zfpy), tol=20             &114491936 &  8.271 & 7.738 & 5168 & 3676 & 7.375 & 1.370 & 3.625 \\
+Zstd lossless (lvl=3,thr=1)    &237364396 &  3.990 &16.042 & 8030 & 6696 & 0.0 & 0.0 & 0.0 \\
+Blosc2 lossless (zstd,thr=4)   &210905017 &  4.490 &14.253 &11409 & 5166 & 0.0 & 0.0 & 0.0 \\
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\end{table}
+
+\paragraph{Wnioski (granula).}
+\begin{itemize}
+  \item SZ3 ma nieco lepszy bitrate, ale SZY ma dużo szybszy decode i prostsze API.
+  \item ZFP w tym ustawieniu ma ok. 2$\times$ większy strumień (gorszy bitrate) niż SZY/SZ3.
+  \item SZY wnosi engine: SHA + indeks + decode-into, istotne w systemach transmisji i archiwizacji.
+\end{itemize}
+
+% =========================================================
+\section{Wyniki (auto-suite v1): syntetyki + MNIST/Fashion-MNIST (starszy eksperyment)}
+
+Sekcja ta opisuje wcześniejszy zestaw testów i pozostaje użyteczna jako dodatkowy kontekst. Najnowsze dane z benchmarku publicznego opisano w Sekcji~\ref{sec:public_bench_results}.
+
+\subsection{Wyniki na danych pobranych (MNIST/Fashion-MNIST): tabela zbiorcza}
+Poniższa tabela streszcza wybrane wiersze z wcześniejszego \texttt{grok\_summary.md} dla mozaik 2688$\times$2688 (grid=96).
+Wyniki pokazują, że SZY spełnia kryterium \texttt{max\_err\_ok} na tych danych dla \texttt{f32/f64} oraz uzyskuje ratio znacząco wyższe niż baseline lossless.
+
+\begin{table}[H]
+\centering
+\caption{Auto-suite v1 (download): MNIST/Fashion-MNIST mozaika 2688$\times$2688 (grid=96). Porównanie ratio i spełnienie bound (wybrane).}
+\label{tab:mnist_fashion_summary}
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{@{}llrrrrrr@{}}
+\toprule
+Dataset & dtype & eps & B & SZ3 ratio & SZY ratio & Zstd ratio & SZY OK \\
+\midrule
+Fashion-MNIST & f32 & 5  & 128 & 11.923 & 11.212 & 4.909 & YES \\
+Fashion-MNIST & f32 & 10 & 128 & 15.658 & 13.741 & 4.909 & YES \\
+Fashion-MNIST & f32 & 20 & 128 & 21.893 & 17.338 & 4.909 & YES \\
+Fashion-MNIST & f64 & 5  & 128 & 23.845 & 22.424 & 7.753 & YES \\
+Fashion-MNIST & f64 & 10 & 128 & 31.316 & 27.482 & 7.753 & YES \\
+Fashion-MNIST & f64 & 20 & 128 & 43.785 & 34.675 & 7.753 & YES \\
+MNIST         & f32 & 5  & 128 & 17.467 & 17.891 & 12.365 & YES \\
+MNIST         & f64 & 5  & 128 & 34.934 & 35.783 & 19.441 & YES \\
+MNIST         & u16 & 10 & 128 &   --   &  3.831 &  6.659 & YES \\
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\end{table}
+
+\paragraph{Interpretacja (download v1).}
+\begin{itemize}
+  \item Dla float (0..255) SZY jest bardzo konkurencyjny względem SZ3 i wyraźnie lepszy od lossless baseline.
+  \item Dla \texttt{u16} na MNIST baseline lossless bywa lepszy w ratio (wysoka redundancja danych).
+\end{itemize}
+
+% =========================================================
+\section{Wyniki (public benchmark v3): dane satelitarne, sensory, syntetyczne}
+\label{sec:public_bench_results}
+
+Ta sekcja podsumowuje najnowsze wyniki z \texttt{bench\_public.py}, które bazują na w pełni publicznych datasetach (GeoTIFF, UCI, jbrownlee, syntetyczne CT/astro/climate). Wszystkie wyniki pochodzą z jednego przebiegu:
+
+\begin{lstlisting}[style=txtstyle]
+python bench_public.py --dll szytool.dll --outdir out_public \
+  --mode all --eps 5,10,20 --block 64,128
+\end{lstlisting}
+
+\subsection{Wybrane dataset-y i konfiguracje}
+Poniższa tabela zbiorcza pokazuje \textbf{najlepsze} konfiguracje SZY v8 (pośród eps=5,10,20 i B=64,128) w porównaniu z innymi kodekami dla kilku reprezentatywnych datasetów. Dane pochodzą z \texttt{compare\_all.csv}.
+
+\begin{table}[H]
+\centering
+\caption{Public benchmark v3: wybrane dataset-y, eps, B; porównanie ratio (najlepsze konfiguracje).}
+\label{tab:public_bench_summary}
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{@{}llrrrrrrr@{}}
+\toprule
+Dataset & dtype & eps & B & Kodek & Ratio & max\_err & enc [ms] & dec [ms] \\
+\midrule
+sat\_landsat\_L8\_B4\_... & u16 & 20 & 128 & SZY v8  & 16.02 & 19.60 & 9.7 & 8.8 \\
+                          &     &    &     & Zstd    &  4.38 & 0.00  & 8.8 & 2.5 \\
+                          &     &    &     & Blosc2  &  4.50 & 0.00  &10.8 & 3.1 \\
+\midrule
+sat\_placeholder\_2048x2048 & u16 & 10 & 128 & SZY v8  & 86.91 & 9.80 & 37.0 & 15.6 \\
+                            &     &    &     & Zstd    &725.09 & 0.00 & 2.6 & 2.1 \\
+                            &     &    &     & Blosc2  &15.68 & 0.00 & 5.2 & 8.6 \\
+\midrule
+med\_placeholder\_ct\_512x512 & u16 & 20 & 128 & SZY v8 & 6.03 & 19.57 & 6.3 & 4.5 \\
+                              &     &    &     & Zstd   & 1.84 & 0.00  & 8.1 & 1.6 \\
+                              &     &    &     & Blosc2 & 1.75 & 0.00  & 6.8 & 1.9 \\
+\midrule
+astro\_placeholder\_ccd\_2048x2048 & u16 & 20 & 128 & SZY v8 & 5.03 & 19.60 & 85.2 & 42.2 \\
+                                   &     &    &     & Zstd   & 1.80 & 0.00 &126.0 & 29.1 \\
+                                   &     &    &     & Blosc2 & 1.73 & 0.00 & 72.7 & 14.6 \\
+\midrule
+clim\_placeholder\_temp & f32 & 10 & 128 & SZY v8 &1041.17 & 9.80 & 10.0 & 3.7 \\
+720x1440 (padded 768x1536)     &     &    &     & SZ3    &4131.87 & 9.92 & 41.1 &18.5 \\
+                               &     &    &     & ZFP    & 23.96 & 0.49 & 20.3 &12.1 \\
+                               &     &    &     & Zstd   &  1.68 & 0.00 & 17.3 & 6.1 \\
+\midrule
+sensor\_temp\_daily\_min & f64 & 20 & 128 & SZY v8 &618.26 &19.57 & 1.0 & 0.5 \\
+(384x128 pad)             &     &    &     & SZ3    &1217.39 &19.96 & 3.9 & 2.3 \\
+                          &     &    &     & ZFP    &138.85 & 2.68 & 0.2 & 0.2 \\
+                          &     &    &     & Zstd   & 44.02 & 0.00 & 0.6 & 0.2 \\
+\midrule
+sensor\_airquality\_uci & f64 & 20 & 128 & SZY v8 &195.99 &19.60 & 5.1 & 6.7 \\
+(4096x128 pad)          &     &    &     & SZ3    &205.68 &20.00 &28.1 &10.3 \\
+                        &     &    &     & ZFP    &91.05 & 3.06 & 2.9 & 2.1 \\
+                        &     &    &     & Zstd   &59.90 & 0.00 & 3.3 & 1.7 \\
+\midrule
+sensor\_energy\_uci & f64 & 20 & 128 & SZY v8 &532.27 &19.60 & 4.3 & 4.8 \\
+(4096x128 pad)      &     &    &     & SZ3    &469.69 &20.00 &23.4 &10.1 \\
+                    &     &    &     & ZFP    &125.79 & 2.74 & 3.0 & 2.2 \\
+                    &     &    &     & Zstd   &37.80 & 0.00 & 4.5 & 1.8 \\
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\end{table}
+
+\paragraph{Kluczowe obserwacje.}
+\begin{itemize}
+  \item \textbf{SZY vs ZFP:} we wszystkich powyższych przypadkach SZY ma wyraźnie \emph{większy} ratio niż ZFP przy tym samym eps, jednocześnie spełniając max\_err$\le$eps.
+  \item \textbf{SZY vs SZ3:}
+        \begin{itemize}
+          \item Na super-gładnym polu klimatycznym (f32) SZ3 ma $\sim$4$\times$ lepszy ratio, ale SZY osiąga nadal imponujące $\sim 10^3\times$ i jest 3--4$\times$ szybszy.
+          \item Na sensorach UCI SZY osiąga ratio porównywalne lub \textbf{wyższe} niż SZ3 przy tym samym eps (np. sensor\_energy\_uci: 532x vs 470x), przy znacznie krótszym czasie enkodowania.
+        \end{itemize}
+  \item \textbf{SZY vs Zstd/Blosc2:}
+        \begin{itemize}
+          \item Na CT/astro/satelita SZY daje 3--5$\times$ lepszy ratio niż lossless baseline przy eps 10--20.
+          \item Na danych sensorowych SZY zwiększa ratio względem Zstd 5--15-krotnie.
+        \end{itemize}
+\end{itemize}
+
+\subsection{Interpretacja naukowo-techniczna wyników}
+Na podstawie powyższej tabeli można sformułować kilka mocnych, naukowo uzasadnionych tez:
+
+\begin{itemize}
+  \item \textbf{Bounded-error jest realnie dotrzymywany.}
+        We wszystkich wierszach SZY \texttt{max\_err} jest bardzo blisko $\varepsilon$ (zwykle 0.98$\times$eps), co potwierdza, że implementacja spełnia kontrakt jakości.
+  \item \textbf{SZY bije ZFP w warunkach ``scientific lossy''.}
+        Przy tym samym eps SZY daje zwykle 2--5$\times$ lepszy ratio niż ZFP, zachowując kontrolę błędu i prostą integrację (kontener, SHA, decode-into).
+  \item \textbf{SZY jest konkurencyjny z SZ3 na realnych danych.}
+        \begin{itemize}
+          \item Na danych sensorowych (AirQuality, Energy, temperatury dzienne) SZY często dorównuje lub przebija SZ3 w ratio, przy zauważalnie krótszym czasie enkodera.
+          \item Na polach super-gładkich SZ3 ma przewagę bitrate, co sugeruje potencjał dodania modułu trendów w przyszłych wersjach SZY.
+        \end{itemize}
+  \item \textbf{Wydajność czasowa sprawia, że SZY nadaje się do pipeline'ów on-line.}
+        Czasy rzędu pojedynczych--kilkunastu ms dla macierzy rzędu $10^5$--$10^6$ elementów czynią SZY praktycznym narzędziem zarówno na serwerach, jak i na laptopach czy w środowiskach edge.
+\end{itemize}
+
+% =========================================================
+\section{Najważniejsze wnioski (stan v8 po testach)}
+
+\subsection{Co działa i co jest wartością engine}
+\begin{itemize}
+  \item \textbf{Integralność}: SHA-256 kontenera i danych działa oraz jest raportowana jednoznacznie.
+  \item \textbf{Wątki}: silnik ma kontrolę wątków na zewnątrz i walidację (\texttt{SZY\_E\_THREADS}).
+  \item \textbf{Wydajność}: szybki decode; tile-index umożliwia efektywne MT decode i decode-into.
+  \item \textbf{Pozycja vs ZFP}: w wielu przypadkach bounded-error SZY daje lepsze ratio niż ZFP przy zachowaniu max\_err.
+  \item \textbf{Dane realne obrazopodobne i sensoryczne}: na danych z UCI/jbrownlee/SST-synthetic SZY spełnia bound i jest konkurencyjny z SZ3, a często od niego szybszy.
+  \item \textbf{Bezpieczna semantyka bounded-error}: w przypadkach, gdzie aktualny model nie może utrzymać zadanego \texttt{eps}, silnik może jawnie odmówić kompresji (\texttt{SZY\_E\_BOUNDS}) zamiast zwrócić strumień łamiący gwarancję.
+\end{itemize}
+
+\subsection{Czego porównania z SZ3/ZFP uczą (bez zmiany niszy)}
+\begin{itemize}
+  \item Na super-gładkich polach SZ3 może osiągnąć znacznie lepszy bitrate --- to motywuje ewolucję SZY w kierunku opcjonalnych trendów (dekoder już przewiduje \texttt{trend\_id}, specyfikacja na to pozwala).
+  \item ZFP, mimo zaawansowanej matematycznie konstrukcji, w praktyce często ma słabszy ratio przy tym samym eps na danych naukowych 2D; SZY wypełnia tu lukę między ``pure ZFP'' a cięższym sprzętowo SZ3, dodając przy tym pełny engine (kontener, SHA, index).
+\end{itemize}
+
+\subsection{Rekomendacje rozwojowe (zgodne z filozofią tile-based engine)}
+\begin{itemize}
+  \item \textbf{Opcjonalny trend encoding} (plane3/poly) dla klas danych bardzo gładkich: pozwoliłby podeprzeć się tam, gdzie SZ3 ma dziś przewagę.
+  \item \textbf{Rozszerzenie konfiguracji po stronie klienta} (np. jawna kontrola polityki eventów i trybu kwantyzacji) przy zachowaniu prostych domyślnych ustawień.
+  \item \textbf{Tryb strict vs best-effort}:
+        \begin{itemize}
+          \item strict --- zawsze bounded-error albo \texttt{SZY\_E\_BOUNDS},
+          \item best-effort --- tryb eksperymentalny, w którym można pozwolić encoderowi łagodnie przekroczyć eps, jeśli klient uzna to za akceptowalne.
+        \end{itemize}
+  \item \textbf{Dodanie metryki \texttt{eps\_over\_range}} w raportach jako domyślnej, by czytelniej pokazać „agresywność eps” na różnych datasetach.
+  \item \textbf{CI + CMake + testy regresyjne (golden files) + fuzz decode} jako stała bateria testowa (weryfikacja odporności dekodera).
+\end{itemize}
+
+\subsection{Potencjał naukowy i przewagi praktyczne}
+Na bazie całej dokumentacji i wyników można sformułować następujące tezy naukowo-techniczne:
+
+\begin{itemize}
+  \item SZY v8 jest \textbf{pełnoprawnym naukowym kodekiem stratnym} dla danych 2D z:
+        \begin{itemize}
+          \item twardym modelem L$\infty$ bounded-error,
+          \item przenośną specyfikacją (kontener, tile, SHA),
+          \item otwartą implementacją w C (bez egzotycznych zależności).
+        \end{itemize}
+  \item W benchmarkach na realnych danych (sensory UCI, dane czasowe, obraz GeoTIFF) SZY osiąga:
+        \begin{itemize}
+          \item ratio rzędu setek (czasem tysięcy) przy eps rzędu 5--20,
+          \item czasy enkodera/decodera rzędu pojedynczych--kilkunastu ms,
+          \item pełną kontrolę błędu.
+        \end{itemize}
+  \item SZY wypełnia lukę między:
+        \begin{itemize}
+          \item ``klasycznym'' lossless (Zstd, Blosc2),
+          \item ZFP (świetny matematycznie, ale bez engine),
+          \item a cięższym sprzętowo i konfiguracyjnie SZ3.
+        \end{itemize}
+        W wielu scenariuszach (telemetria, archiwizacja naukowa, pipeline HPC z dekodowaniem w locie) to właśnie SZY proponuje najbardziej zrównoważony kompromis.
+  \item Dzięki temu SZY v8 ma \textbf{realny potencjał jako komponent}:
+        \begin{itemize}
+          \item w kodach klimatycznych/oceanicznych (NetCDF/HDF5 $\rightarrow$ SZY),
+          \item w pipeline'ach obrazowych (satelitarne, medyczne, astro),
+          \item w aplikacjach edge/IoT, gdzie ważna jest szybkość i prostota, a dopuszcza się mały, kontrolowany błąd.
+        \end{itemize}
+\end{itemize}
+
+% =========================================================
+% Optional plots section (embedded small demo)
+\FloatBarrier
+\clearpage
+\ifincludeplots
+\section{Wykresy (opcjonalne; PGFPlots)}
+
+\pgfplotstableread[row sep=\\,col sep=&]{
+codec & ratio & bpp & enc_ms & dec_ms \\
+SZY   & 16.666 & 3.840 & 2480 & 1357 \\
+SZ3   & 17.730 & 3.610 & 5574 & 3755 \\
+ZFP20 &  8.271 & 7.738 & 5168 & 3676 \\
+ZstdL &  3.990 &16.042 & 8030 & 6696 \\
+Blosc &  4.490 &14.253 &11409 & 5166 \\
+}\gran
+
+\subsection{Granula: ratio}
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  ybar,
+  bar width=12pt,
+  width=0.95\textwidth,
+  height=7cm,
+  ymin=0,
+  ylabel={ratio (raw/comp)},
+  symbolic x coords={SZY,SZ3,ZFP20,ZstdL,Blosc},
+  xtick=data,
+  grid=major,
+]
+\addplot table[x=codec,y=ratio]{\gran};
+\end{axis}
+\end{tikzpicture}
+\caption{Granula: porównanie ratio (eps=10).}
+\end{figure}
+
+\subsection{Granula: czasy encode/decode}
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}
+\begin{groupplot}[
+  group style={group size=2 by 1, horizontal sep=1.2cm},
+  width=0.47\textwidth,
+  height=7cm,
+  ybar,
+  bar width=12pt,
+  ymin=0,
+  symbolic x coords={SZY,SZ3,ZFP20,ZstdL,Blosc},
+  xtick=data,
+  xticklabel style={rotate=45, anchor=east, font=\small},
+  grid=major,
+]
+\nextgroupplot[ylabel={enc [ms]}, title={Encode}]
+  \addplot table[x=codec,y=enc_ms]{\gran};
+
+\nextgroupplot[ylabel={dec [ms]}, title={Decode}]
+  \addplot table[x=codec,y=dec_ms]{\gran};
+\end{groupplot}
+\end{tikzpicture}
+\caption{Granula: czasy encode/decode.}
+\end{figure}
+
+\fi
+
+% =========================================================
+\appendix
+
+\section{Załącznik A: Artefakty i reprodukowalność}
+Auto-suite oraz benchmark publiczny zapisują:
+\begin{itemize}
+  \item \texttt{compare\_all.json}: meta + pełne wyniki,
+  \item \texttt{compare\_all.csv}: pełna tabela,
+  \item \texttt{report.md}: raport tekstowy,
+  \item \texttt{plots/}: PNG (jeśli matplotlib) lub alternatywnie snippet PGFPlots.
+\end{itemize}
+
+\section{Załącznik B: Minimalna specyfikacja zgodności (must-pass)}
+Implementacja zgodna z v8 powinna:
+\begin{itemize}
+  \item rozpoznawać \texttt{magic="SZ2D"} i \texttt{version=8},
+  \item używać little-endian dla typów stałej długości,
+  \item implementować varuint jak w specyfikacji,
+  \item weryfikować SHA-256 (\texttt{data\_sha}, \texttt{container\_sha}),
+  \item poprawnie parsować index blob (jeśli \texttt{flags\&1}),
+  \item dekodować tile record i walidować długość payload po dekompresji.
+\end{itemize}
+
+% =========================================================
+\clearpage
+\section*{Bibliografia}
+\addcontentsline{toc}{section}{Bibliografia}
+
+\begin{thebibliography}{99}
+
+\bibitem{fips180-4}
+National Institute of Standards and Technology (NIST),
+\emph{FIPS PUB 180-4: Secure Hash Standard (SHS)}, August 2015.
+\url{https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.180-4.pdf}
+
+\bibitem{zfp}
+P. Lindstrom,
+\emph{Fixed-Rate Compressed Floating-Point Arrays},
+IEEE Transactions on Visualization and Computer Graphics, 2014.
+\url{https://computing.llnl.gov/projects/zfp}
+
+\bibitem{sz3}
+D. Tao, S. Di, F. Cappello i in.,
+\emph{SZ3: A modular framework for scientific data compression}.
+\url{https://github.com/szcompressor/SZ3}
+
+\bibitem{zstd}
+Y. Collet,
+\emph{Zstandard (zstd)}.
+\url{https://github.com/facebook/zstd}
+
+\bibitem{zlib}
+J.-L. Gailly, M. Adler,
+\emph{zlib Compression Library}.
+\url{https://zlib.net/}
+
+\bibitem{blosc2}
+Blosc Development Team,
+\emph{Blosc2}.
+\url{https://github.com/Blosc/c-blosc2}
+
+\bibitem{mnist}
+Y. LeCun, C. Cortes, C. J. C. Burges,
+\emph{The MNIST Database of Handwritten Digits}.
+\url{http://yann.lecun.com/exdb/mnist/}
+
+\bibitem{fashionmnist}
+H. Xiao, K. Rasul, R. Vollgraf,
+\emph{Fashion-MNIST: a Novel Image Dataset for Benchmarking Machine Learning Algorithms}.
+\url{https://github.com/zalandoresearch/fashion-mnist}
+
+\end{thebibliography}
+
+\end{document}
